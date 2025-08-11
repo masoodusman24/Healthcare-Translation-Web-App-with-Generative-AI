@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Healthcare Translator (Prototype)</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 20px auto;
+      padding: 0 10px;
+    }
+    h1 {
+      text-align: center;
+    }
+    label {
+      font-weight: bold;
+      display: block;
+      margin-top: 20px;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      font-size: 16px;
+      margin-top: 5px;
+      box-sizing: border-box;
+    }
+    button {
+      margin-top: 15px;
+      padding: 10px 15px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .buttons {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+    }
+    .transcript-box {
+      border: 1px solid #ccc;
+      padding: 10px;
+      min-height: 60px;
+      margin-top: 5px;
+      white-space: pre-wrap;
+      background: #f9f9f9;
+      /* Default direction is LTR */
+      direction: ltr;
+      text-align: left;
+    }
+    small {
+      font-size: 12px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <h1>Healthcare Translator (Prototype)</h1>
+
+  <label for="inputLang">Input language (code)</label>
+  <input id="inputLang" type="text" placeholder="en-US" value="en-US" />
+  <small>Use codes like en, en-US, es, fr, ur</small>
+
+  <label for="outputLang">Output language (code)</label>
+  <input id="outputLang" type="text" placeholder="ar" value="ar" />
+
+  <div class="buttons">
+    <button id="startBtn">Start Listening</button>
+    <button id="stopBtn" disabled>Stop</button>
+    <button id="speakBtn">Speak Translated Text</button>
+  </div>
+
+  <label>Original (<span id="inputLangLabel">en-US</span>)</label>
+  <div id="originalText" class="transcript-box"></div>
+
+  <label>Translated (<span id="outputLangLabel">ar</span>)</label>
+  <div id="translatedText" class="transcript-box">Translation will appear here</div>
+
+  <script>
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const speakBtn = document.getElementById("speakBtn");
+    const inputLangInput = document.getElementById("inputLang");
+    const outputLangInput = document.getElementById("outputLang");
+    const inputLangLabel = document.getElementById("inputLangLabel");
+    const outputLangLabel = document.getElementById("outputLangLabel");
+    const originalTextDiv = document.getElementById("originalText");
+    const translatedTextDiv = document.getElementById("translatedText");
+
+    let recognition;
+    let listening = false;
+
+    inputLangInput.addEventListener("input", () => {
+      inputLangLabel.textContent = inputLangInput.value;
+    });
+    outputLangInput.addEventListener("input", () => {
+      outputLangLabel.textContent = outputLangInput.value;
+      updateDirection();
+    });
+
+    function updateDirection() {
+      const lang = outputLangInput.value.toLowerCase();
+      if (lang.startsWith("ar")) {
+        translatedTextDiv.style.direction = "rtl";
+        translatedTextDiv.style.textAlign = "right";
+      } else {
+        translatedTextDiv.style.direction = "ltr";
+        translatedTextDiv.style.textAlign = "left";
+      }
+    }
+
+    updateDirection(); // initial call
+
+    startBtn.addEventListener("click", () => {
+      if (listening) return;
+
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+
+      if (!SpeechRecognition) {
+        alert("SpeechRecognition API not supported in this browser.");
+        return;
+      }
+
+      recognition = new SpeechRecognition();
+      recognition.lang = inputLangInput.value || "en-US";
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onresult = async (event) => {
+        const text = event.results[0][0].transcript;
+        originalTextDiv.textContent = text;
+        await translateText(text);
+      };
+
+      recognition.onerror = (event) => {
+        console.error("Speech recognition error:", event.error);
+        stopListening();
+      };
+
+      recognition.onend = () => {
+        stopListening();
+      };
+
+      recognition.start();
+      listening = true;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+    });
+
+    stopBtn.addEventListener("click", () => {
+      stopListening();
+    });
+
+    function stopListening() {
+      if (!listening) return;
+      recognition.stop();
+      listening = false;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    }
+
+    speakBtn.addEventListener("click", () => {
+      const text = translatedTextDiv.textContent;
+      if (!text || text === "Translation will appear here") return;
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = (outputLangInput.value || "ar").split("-")[0];
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    });
+
+    async function translateText(text) {
+      const sourceLang = (inputLangInput.value || "en-US").split("-")[0];
+      const targetLang = (outputLangInput.value || "ar").split("-")[0];
+
+      try {
+        const response = await fetch("/api/translate/", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text,
+            sourceLang,
+            targetLang,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("Translation API error:", errorText);
+          alert("Translation failed (see console).");
+          return;
+        }
+
+        const data = await response.json();
+        translatedTextDiv.textContent = data.translatedText || "";
+      } catch (err) {
+        console.error("Error calling translate API:", err);
+        alert("Translation failed (network error).");
+      }
+    }
+  </script>
+</body>
+</html>
